@@ -1,0 +1,184 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clients        ClientAccount[]
+  documents      Document[]
+  requestTickets RequestTicket[]
+  messageThreads MessageThread[]
+  auditLogs      AuditLog[]
+}
+
+model ClientAccount {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  email          String   @unique
+  passwordHash   String
+  role           String   @default("user") // "admin" | "user"
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization        Organization         @relation(fields: [organizationId], references: [id])
+  sessions            Session[]
+  uploadedDocuments   Document[]           @relation("UploadedBy")
+  documentAccess      DocumentAccess[]
+  createdTickets      RequestTicket[]      @relation("CreatedBy")
+  ticketEvents        TicketEvent[]
+  messageParticipants MessageParticipant[]
+  sentMessages        Message[]
+  auditLogs           AuditLog[]
+
+  @@index([organizationId])
+}
+
+model Session {
+  id              String    @id @default(cuid())
+  clientAccountId String
+  token           String    @unique
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+
+  clientAccount ClientAccount @relation(fields: [clientAccountId], references: [id])
+
+  @@index([clientAccountId])
+  @@index([token])
+}
+
+model Document {
+  id             String   @id @default(cuid())
+  organizationId String
+  title          String
+  category       String   @default("general") // "contract" | "invoice" | "report" | "general"
+  filePath       String
+  fileName       String
+  mimeType       String
+  size           Int
+  uploadedById   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  uploadedBy   ClientAccount?   @relation("UploadedBy", fields: [uploadedById], references: [id])
+  access       DocumentAccess[]
+
+  @@index([organizationId])
+}
+
+model DocumentAccess {
+  id              String @id @default(cuid())
+  documentId      String
+  clientAccountId String
+
+  document      Document      @relation(fields: [documentId], references: [id])
+  clientAccount ClientAccount @relation(fields: [clientAccountId], references: [id])
+
+  @@unique([documentId, clientAccountId])
+}
+
+model RequestTicket {
+  id             String    @id @default(cuid())
+  organizationId String
+  createdById    String
+  title          String
+  description    String
+  status         String    @default("open") // "open" | "in_progress" | "waiting" | "resolved" | "closed"
+  priority       String    @default("medium") // "low" | "medium" | "high" | "urgent"
+  slaDueAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  createdBy    ClientAccount @relation("CreatedBy", fields: [createdById], references: [id])
+  events       TicketEvent[]
+
+  @@index([organizationId])
+}
+
+model TicketEvent {
+  id        String   @id @default(cuid())
+  ticketId  String
+  actorId   String?
+  type      String // "created" | "status_change" | "comment" | "priority_change"
+  payload   String   @default("{}") // JSON string
+  createdAt DateTime @default(now())
+
+  ticket RequestTicket  @relation(fields: [ticketId], references: [id])
+  actor  ClientAccount? @relation(fields: [actorId], references: [id])
+
+  @@index([ticketId])
+}
+
+model MessageThread {
+  id             String   @id @default(cuid())
+  organizationId String
+  subject        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id])
+  participants MessageParticipant[]
+  messages     Message[]
+
+  @@index([organizationId])
+}
+
+model MessageParticipant {
+  id              String @id @default(cuid())
+  threadId        String
+  clientAccountId String
+
+  thread        MessageThread @relation(fields: [threadId], references: [id])
+  clientAccount ClientAccount @relation(fields: [clientAccountId], references: [id])
+
+  @@unique([threadId, clientAccountId])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  threadId  String
+  senderId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  thread MessageThread @relation(fields: [threadId], references: [id])
+  sender ClientAccount @relation(fields: [senderId], references: [id])
+
+  @@index([threadId])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  actorId        String?
+  action         String // "login" | "logout" | "document_view" | "document_download" | "ticket_create" | "ticket_update" | "message_send"
+  entityType     String? // "document" | "ticket" | "message" | "session"
+  entityId       String?
+  ipAddress      String?
+  userAgent      String?
+  metadata       String   @default("{}") // JSON string
+  createdAt      DateTime @default(now())
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  actor        ClientAccount? @relation(fields: [actorId], references: [id])
+
+  @@index([organizationId])
+  @@index([actorId])
+  @@index([createdAt])
+}
